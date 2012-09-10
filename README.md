@@ -1,0 +1,4 @@
+OthelloAgent
+============
+
+An Othello agent 
