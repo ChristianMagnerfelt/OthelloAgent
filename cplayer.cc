@@ -1,16 +1,53 @@
 #include "cplayer.h"
 #include <cstdlib>
 #include <algorithm>
+#include <limits>
 
 namespace reversi
 {
-
 	CPlayer::CPlayer(){}
 
 	void CPlayer::Initialize(bool pFirst,const CDeadline &pDue)
 	{
 		srand(CDeadline::Now());
 		
+		std::for_each(valueMatrix.begin(), valueMatrix.end(), [](std::array<int, 8> & row){
+			std::fill(row.begin(), row.end(), 0);
+		});
+		std::array<std::array<int, 8>,8> tmp = {
+		10, -10, 0, 0, 0, 0, -10, 10,
+		-10, -10, 0, 0, 0, 0, -10, -10,
+		0, 0, 0, 0, 0, 0,  0,  0,
+		0, 0, 0, 0, 0, 0,  0,  0,
+		0, 0, 0, 0, 0, 0,  0,  0,
+		0, 0, 0, 0, 0, 0,  0,  0,
+		-10, -10, 0, 0, 0, 0, -10, -10,		
+		10, -10, 0, 0, 0, 0, -10, 10,
+		};
+		valueMatrix = tmp;
+		/*
+		valueMatrix[0][0] = 10;
+		valueMatrix[0][7] = 10;
+		valueMatrix[7][7] = 10;
+		valueMatrix[7][0] = 10;
+
+		valueMatrix[1][1] = -2;
+		valueMatrix[0][1] = -2;
+		valueMatrix[1][0] = -2;
+
+		valueMatrix[0][6] = -2;
+		valueMatrix[1][6] = -2;
+		valueMatrix[1][7] = -2;
+
+		valueMatrix[6][6] = -2;
+		valueMatrix[6][7] = -2;
+		valueMatrix[7][6] = -2;
+
+		valueMatrix[6][0] = -2;
+		valueMatrix[6][1] = -2;
+		valueMatrix[7][1] = -2;
+		*/
+		//printValueMatrix();
 		//You can use this function to perform initialization tasks for your program. It is
 		//perfectly ok to leave it as is
 	}
@@ -18,7 +55,7 @@ namespace reversi
 	CMove CPlayer::Play(const CBoard &pBoard,const CDeadline &pDue)
 	{
 		//Use the commented version if your system supports ANSI color (linux does)
-		pBoard.PrintNoColor();
+		//pBoard.PrintNoColor();
 		//pBoard.Print();
     
 		std::vector<CMove> lMoves;
@@ -32,75 +69,128 @@ namespace reversi
 		 * Here you should write your clever algorithms to get the best next move.
 		 * This skeleton returns a random movement instead.
 		 */
-		int maxCount = 0;
-		CMoce bestMove;
-		std::for_each(lMoves.begin(), lMoves.end(), [](CMove & move)
+		//std::cout << "Start : " << pDue.Now() << std::endl;
+		updateValueMatrix(pBoard);
+		//printValueMatrix();
+
+		std::vector<Node> nodes;
+		nodes.resize(lMoves.size());
+		for(size_t i = 0; i < nodes.size(); ++i)
 		{
-			int totalCount = 0;
-			totalCount += CountEnemyDisksOnRow(move);
-			//TODO: Count on col
-			//TODO: Count on diagonal
-			if(totalCount > maxCount)
-			{
-				maxCount = totalCount;
-				bestMove = move;
-			}
-		};
-    		//TODO: return bestMove;
-		return lMoves[rand()%lMoves.size()];
+			nodes[i].moveId = i;
+		}
+
+		accessDenied(pBoard, lMoves, nodes);
+		std::sort(nodes.begin(), nodes.end());
+		//std::cout << "Stop : " << pDue.Now() << std::endl;
+
+		//std::cout << "FINAL MOVE" << std::endl;
+		//std::cout << "Player Moves : " << nodes[nodes.size() - 1].playerMoves << std::endl;
+		//std::cout << "Opponent Moves : " << nodes[nodes.size() - 1].oppMoves << std::endl;
+		//std::cout << "Blank : " << nodes[nodes.size() - 1].adjacentBlank << std::endl;
+		//std::cout << "Total value : " << nodes[nodes.size() - 1].totalValue << std::endl;
+
+		//return lMoves[rand()%lMoves.size()];
+		return lMoves[nodes[nodes.size() - 1].moveId];
 	}
 
-	int CPlayer::CountEnemyDisksOnRow(Move & move)
+
+	void CPlayer::accessDenied(const CBoard &pBoard, const std::vector<CMove> & moves, std::vector<Node> & nodes)
 	{
-		int rightCount = 0; 
-		for(int i = move.Row(); i < pBoard.cSize; ++i)
+		for(size_t i = 0; i < nodes.size(); ++i)
 		{
-			if(pBoard.At(i, move.Col()) == 2)
-			{
-				++rightCount;
-			}
-			else if(pBoard.At(i, move.Col()) == 1)
-			{
-				break;
-			}
-			else if(pBoard.At(i, move.Col()) == 0)
-			{
-				rightCount = 0;
-				break;
-			}
+			int row = moves[nodes[i].moveId].Row();
+			int col = moves[nodes[i].moveId].Col();
+			//std::cout << "Row : " << row << std::endl;
+			//std::cout << "Col : " << col << std::endl;
 
-			// Reset count if we don't reach our own disk on the right side this row
-			if( i == (pBoard.cSize -1))
+			nodes[i].positionValue = valueMatrix[row][col];
+			//std::cout << "Pos value : " << nodes[i].positionValue << std::endl;
+
+			CBoard newBoard(pBoard, moves[nodes[i].moveId]);
+
+			evaluateFunction(newBoard, nodes[i]);
+			nodes[i].calculateTotalValue();
+			//std::cout << "MOVE : " << i << std::endl;
+			//std::cout << "Player Moves : " << nodes[i].playerMoves << std::endl;
+			//std::cout << "Opponent Moves : " << nodes[i].oppMoves << std::endl;
+			//std::cout << "Blank : " << nodes[i].adjacentBlank << std::endl;
+			//std::cout << "Total : " << nodes[i].totalValue << std::endl;
+		}
+	}
+
+	void CPlayer::evaluateFunction(CBoard & board, Node & node)
+	{
+		std::vector<CMove> oppMoves;
+		std::vector<CMove> playerMoves;
+		board.FindPossibleMoves(oppMoves,OTHER);
+		board.FindPossibleMoves(playerMoves,OWN);
+		node.oppMoves = oppMoves.size();
+		node.playerMoves = playerMoves.size();
+		node.adjacentBlank = checkEmptySquares(board);
+		node.evaluated = true;
+	}
+
+	int CPlayer::checkEmptySquares(CBoard & board)
+	{
+		int count = 0;
+		for(int i = 1; i < 7; ++i)
+		{
+			for(int j = 1; j < 7; ++j)
 			{
-				rightCount = 0;
-				break;
+				if(board.At(j, i) == 1)
+				{
+					if(board.At(j+1, i) == 0)
+						++count; 
+					if(board.At(j-1, i) == 0)
+						++count;
+					if(board.At(j, i+1) == 0)
+						++count;
+					if(board.At(j, i-1) == 0)
+						++count;
+				}
 			}
 		}
-		
-		int leftCount = 0;
-		for(int i = move.Row(); 0 =< i; --i)
-		{
-			if(pBoard.At(i, move.Col()) == 2)
-			{
-				++leftCount;
-			}
-			else if(pBoard.At(i, move.Col()) == 1)
-			{
-				break;
-			}
-			else if(pBoard.At(i, move.Col()) == 0)
-			{
-				leftCount = 0;
-				break;
-			}
+		return count;
+	}
 
-			// Reset count if we don't reach our own disk on the left side of this row
-			if( i == 0)
-			{
-				rightCount = 0;
-				break;
-			}
+	void CPlayer::printValueMatrix() const
+	{
+		std::cout << "########" << std::endl;
+		std::for_each(valueMatrix.begin(), valueMatrix.end(), [](const std::array<int, 8> & row){
+			std::for_each(row.begin(), row.end(),[](const int & value){
+				std::cout << value;
+			});
+			std::cout << std::endl;
+		});
+		std::cout << "########" << std::endl;
+	}
+
+	void CPlayer::updateValueMatrix(const CBoard & board)
+	{
+		if(board.At(0,0) == 1)
+		{
+			valueMatrix[0][1] = 5;	
+			valueMatrix[1][0] = 5;
+			valueMatrix[1][1] = 5;
 		}
-		return leftCount + rightCount;
+		if(board.At(0,7) == 1)
+		{
+			valueMatrix[0][6] = 5;	
+			valueMatrix[1][6] = 5;
+			valueMatrix[1][7] = 5;
+		}			
+		if(board.At(7,0) == 1)
+		{
+			valueMatrix[6][0] = 5;
+			valueMatrix[6][1] = 5;	
+			valueMatrix[7][1] = 5;
+		}
+		if(board.At(7,7) == 1)
+		{
+			valueMatrix[6][6] = 5;	
+			valueMatrix[6][7] = 5;
+			valueMatrix[7][6] = 5;
+		}
 	}
 /*namespace reversi*/}
